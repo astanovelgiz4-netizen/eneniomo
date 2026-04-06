@@ -1,5 +1,4 @@
-
-    import asyncio
+import asyncio
 import sqlite3
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineQuery, InlineQueryResultCachedVideo
@@ -12,13 +11,12 @@ CHANNEL_USERNAME = "@kinolashamz"
 DB_PATH = "/tmp/kino.db"  # Read-only joy emas, bot ishlaydi
 # ====================================================
 
-bot = Bot(BOT_TOKEN)
-dp = Dispatcher()  # Aiogram 3.1.1 uchun shunday bo'ladi
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()  # Aiogram 3.1.1 uchun
 
 # =================== DATABASE ===================
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = db.cursor()
-
 db.execute("PRAGMA journal_mode=WAL;")
 
 cur.execute("""
@@ -47,7 +45,7 @@ CREATE TABLE IF NOT EXISTS saved (
 db.commit()
 
 # =================== OBUNA TEKSHIRISH ===================
-async def check_sub(user_id):
+async def check_sub(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
         return member.status in ["member", "administrator", "creator"]
@@ -73,7 +71,6 @@ async def start(msg: Message):
                 (msg.from_user.id, msg.from_user.username))
     db.commit()
 
-    # Agar start param bo‘lsa va kod topilsa
     if param and param.isdigit():
         cur.execute("SELECT title,file_id FROM movies WHERE code=?", (param,))
         movie = cur.fetchone()
@@ -86,7 +83,6 @@ async def start(msg: Message):
         else:
             await msg.answer("❌ Topilmadi")
 
-    # Inline qidiruv va saqlangan filmlar tugmalari
     kb_main = InlineKeyboardBuilder()
     kb_main.button(text="🔍 Inline qidiruv", switch_inline_query_current_chat="")
     kb_main.button(text="💾 Saqlangan filmlar", callback_data="my_movies")
@@ -185,6 +181,7 @@ async def my_movies(call: CallbackQuery):
 
 # =================== RUN ===================
 async def main():
+    print("Bot ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
