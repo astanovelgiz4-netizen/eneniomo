@@ -1,24 +1,22 @@
-import asyncio
+
+    import asyncio
 import sqlite3
-import os
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineQuery, CallbackQuery, InlineQueryResultCachedVideo
+from aiogram.types import Message, CallbackQuery, InlineQuery, InlineQueryResultCachedVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # =================== SOZLAMALAR ===================
 BOT_TOKEN = "7748673962:AAE0KUclQJs6xcwlsFnKvcmhvfl5TpwsxYI"
 ADMIN_ID = 6884014716
 CHANNEL_USERNAME = "@kinolashamz"
+DB_PATH = "/tmp/kino.db"  # Read-only joy emas, bot ishlaydi
 # ====================================================
 
 bot = Bot(BOT_TOKEN)
-dp = Dispatcher(bot)  # <=== Shu joy tuzatildi
+dp = Dispatcher()  # Aiogram 3.1.1 uchun shunday bo'ladi
 
 # =================== DATABASE ===================
-if not os.path.exists("data"):
-    os.mkdir("data")
-
-db = sqlite3.connect("data/kino.db", check_same_thread=False)
+db = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = db.cursor()
 
 db.execute("PRAGMA journal_mode=WAL;")
@@ -49,7 +47,7 @@ CREATE TABLE IF NOT EXISTS saved (
 db.commit()
 
 # =================== OBUNA TEKSHIRISH ===================
-async def check_sub(user_id: int):
+async def check_sub(user_id):
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
         return member.status in ["member", "administrator", "creator"]
@@ -60,8 +58,7 @@ async def check_sub(user_id: int):
 @dp.message(F.text.startswith("/start"))
 async def start(msg: Message):
     user_name = msg.from_user.full_name
-    text = msg.text
-    param = text.split()[1] if len(text.split()) > 1 else None
+    param = msg.text.split()[1] if len(msg.text.split()) > 1 else None
 
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Obuna", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
@@ -169,7 +166,7 @@ async def save_movie(call: CallbackQuery):
 @dp.callback_query(F.data == "my_movies")
 async def my_movies(call: CallbackQuery):
     cur.execute("""
-        SELECT movies.title, movies.file_id, movies.id
+        SELECT movies.title, movies.file_id
         FROM movies
         JOIN saved ON movies.id = saved.movie_id
         WHERE saved.user_id=?
@@ -180,16 +177,15 @@ async def my_movies(call: CallbackQuery):
         await call.message.answer("💤 Sizda saqlangan kino yo‘q")
         return
 
-    for title, file_id, movie_id in movies:
+    for title, file_id in movies:
         kb = InlineKeyboardBuilder()
-        kb.button(text="💾 Saqlash", callback_data=f"save_{movie_id}")
+        kb.button(text="💾 Saqlash", callback_data=f"save_{file_id}")
         kb.adjust(1)
         await bot.send_video(call.from_user.id, file_id, caption=f"🎬 {title}", reply_markup=kb.as_markup())
 
 # =================== RUN ===================
 async def main():
-    print("Bot ishga tushdi...")
-    await dp.start_polling()
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
