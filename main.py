@@ -168,6 +168,7 @@ async def admin_panel(msg: Message):
     kb.button(text="📢 Xabar yuborish", callback_data="broadcast")
     kb.button(text="💎 Premium foydalanuvchi qo‘shish", callback_data="premium_user")
     kb.button(text="🎬 Film qo‘shish", callback_data="add_movie")
+    kb.button(text="🗑 Film o‘chirish", callback_data="delete_movie")
     kb.adjust(1)
     await msg.answer("⚙️ Admin panel:", reply_markup=kb.as_markup())
 
@@ -209,22 +210,42 @@ async def admin_premium(call: CallbackQuery):
         except:
             await msg2.answer("❌ ID noto‘g‘ri!")
 
+# =================== FILM QO'SHISH ===================
 @dp.callback_query(F.data == "add_movie")
 async def admin_add_movie(call: CallbackQuery):
-    await call.message.answer("🎬 Film ma’lumotlarini kiriting (title|file_id|code|premium:0/1):")
+    await call.message.answer(
+        "🎬 Video yuboring va captionga yozing:\n`001|Kino nomi|premium (ha/yo'q)`"
+    )
 
-    @dp.message(F.from_user.id == ADMIN_ID)
+    @dp.message(F.content_type == "video", F.from_user.id == ADMIN_ID)
     async def save_movie_admin(msg2: Message):
         try:
-            title, file_id, code, is_premium = msg2.text.split("|")
+            caption = msg2.caption
+            code, title, premium_text = caption.split("|")
+            is_premium = 1 if premium_text.strip().lower() == "ha" else 0
             cur.execute(
-                "INSERT INTO movies(title,file_id,code,is_premium) VALUES (?,?,?,?)",
-                (title.strip(), file_id.strip(), code.strip(), int(is_premium.strip()))
+                "INSERT INTO movies(code,title,file_id,is_premium) VALUES (?,?,?,?)",
+                (code.strip(), title.strip(), msg2.video.file_id, is_premium)
             )
             db.commit()
-            await msg2.answer(f"🎬 Film '{title}' qo‘shildi! Premium: {is_premium}")
+            await msg2.answer(f"🎬 Film '{title}' qo‘shildi! Premium: {'Ha' if is_premium else 'Yo\'q'}")
+        except Exception as e:
+            await msg2.answer(f"❌ Xato! Format: `001|Kino nomi|ha/yo'q`\n{e}")
+
+# =================== FILM O'CHIRISH ===================
+@dp.callback_query(F.data == "delete_movie")
+async def admin_delete_movie(call: CallbackQuery):
+    await call.message.answer("🎬 O‘chirmoqchi bo‘lgan film kodini yozing:")
+
+    @dp.message(F.from_user.id == ADMIN_ID)
+    async def remove_movie(msg2: Message):
+        try:
+            code = msg2.text.strip()
+            cur.execute("DELETE FROM movies WHERE code=?", (code,))
+            db.commit()
+            await msg2.answer(f"🗑 Film '{code}' o‘chirildi!")
         except:
-            await msg2.answer("❌ Format xato. To‘g‘ri: title|file_id|code|premium(0/1)")
+            await msg2.answer("❌ Kod noto‘g‘ri yoki film topilmadi.")
 
 # =================== RUN ===================
 async def main():
