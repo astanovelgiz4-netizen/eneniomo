@@ -2,7 +2,7 @@ import asyncio
 import sqlite3
 import os
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import *
+from aiogram.types import Message, InlineQuery, CallbackQuery, InlineQueryResultCachedVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # =================== SOZLAMALAR ===================
@@ -12,7 +12,7 @@ CHANNEL_USERNAME = "@kinolashamz"
 # ====================================================
 
 bot = Bot(BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)  # <=== Shu joy tuzatildi
 
 # =================== DATABASE ===================
 if not os.path.exists("data"):
@@ -20,6 +20,7 @@ if not os.path.exists("data"):
 
 db = sqlite3.connect("data/kino.db", check_same_thread=False)
 cur = db.cursor()
+
 db.execute("PRAGMA journal_mode=WAL;")
 
 cur.execute("""
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT
 )
 """)
+
 cur.execute("""
 CREATE TABLE IF NOT EXISTS movies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,18 +38,18 @@ CREATE TABLE IF NOT EXISTS movies (
     file_id TEXT
 )
 """)
+
 cur.execute("""
 CREATE TABLE IF NOT EXISTS saved (
     user_id INTEGER,
-    movie_id INTEGER,
-    UNIQUE(user_id, movie_id)
+    movie_id INTEGER
 )
 """)
+
 db.commit()
-# ====================================================
 
 # =================== OBUNA TEKSHIRISH ===================
-async def check_sub(user_id):
+async def check_sub(user_id: int):
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
         return member.status in ["member", "administrator", "creator"]
@@ -167,7 +169,7 @@ async def save_movie(call: CallbackQuery):
 @dp.callback_query(F.data == "my_movies")
 async def my_movies(call: CallbackQuery):
     cur.execute("""
-        SELECT movies.title, movies.file_id
+        SELECT movies.title, movies.file_id, movies.id
         FROM movies
         JOIN saved ON movies.id = saved.movie_id
         WHERE saved.user_id=?
@@ -178,15 +180,16 @@ async def my_movies(call: CallbackQuery):
         await call.message.answer("💤 Sizda saqlangan kino yo‘q")
         return
 
-    for title, file_id in movies:
+    for title, file_id, movie_id in movies:
         kb = InlineKeyboardBuilder()
-        kb.button(text="💾 Saqlash", callback_data=f"save_{file_id}")
+        kb.button(text="💾 Saqlash", callback_data=f"save_{movie_id}")
         kb.adjust(1)
         await bot.send_video(call.from_user.id, file_id, caption=f"🎬 {title}", reply_markup=kb.as_markup())
 
 # =================== RUN ===================
 async def main():
-    await dp.start_polling(bot)
+    print("Bot ishga tushdi...")
+    await dp.start_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
