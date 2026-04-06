@@ -1,11 +1,11 @@
- import asyncio
+import asyncio
 import sqlite3
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.types import Message, CallbackQuery, InlineQuery, InlineQueryResultCachedVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # =================== SOZLAMALAR ===================
-BOT_TOKEN = "7748673962:AAE0KUclQJs6xcwlsFnKvcmhvfl5TpwsxYI"  # <=== Shu yerga tokeningiz
+BOT_TOKEN = "7748673962:AAE0KUclQJs6xcwlsFnKvcmhvfl5TpwsxYI"
 ADMIN_ID = 6884014716
 CHANNEL_USERNAME = "@kinolashamz"
 DB_PATH = "/tmp/kino.db"
@@ -59,7 +59,6 @@ async def check_sub(user_id):
 async def start(msg: Message):
     user_name = msg.from_user.full_name
     user_id = msg.from_user.id
-    param = msg.text.split()[1] if len(msg.text.split()) > 1 else None
 
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Kanalga obuna bo‘lish", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
@@ -73,7 +72,7 @@ async def start(msg: Message):
             "💡 Kanalga obuna bo‘lgach, siz barcha filmlarga kirish huquqiga ega bo‘lasiz!"
         )
         await msg.answer_photo(
-            photo="URL_OF_ADMIN_IMAGE_HERE",  # Shu yerga admin rasm qo‘shadi
+            photo="URL_OF_ADMIN_IMAGE_HERE",
             caption=text,
             reply_markup=kb.as_markup(),
             parse_mode="Markdown"
@@ -168,10 +167,11 @@ async def admin_panel(msg: Message):
     kb.button(text="📊 Foydalanuvchi statistikasi", callback_data="stats")
     kb.button(text="📢 Xabar yuborish", callback_data="broadcast")
     kb.button(text="💎 Premium foydalanuvchi qo‘shish", callback_data="premium_user")
+    kb.button(text="🎬 Film qo‘shish", callback_data="add_movie")
     kb.adjust(1)
     await msg.answer("⚙️ Admin panel:", reply_markup=kb.as_markup())
 
-# =================== STATISTIKA ===================
+# =================== ADMIN FUNKSIYALARI ===================
 @dp.callback_query(F.data == "stats")
 async def admin_stats(call: CallbackQuery):
     cur.execute("SELECT COUNT(*) FROM users")
@@ -180,16 +180,51 @@ async def admin_stats(call: CallbackQuery):
     total_movies = cur.fetchone()[0]
     await call.message.answer(f"👥 Foydalanuvchilar: {total_users}\n🎬 Filmlar: {total_movies}")
 
-# =================== BROADCAST ===================
 @dp.callback_query(F.data == "broadcast")
 async def admin_broadcast(call: CallbackQuery):
     await call.message.answer("📢 Xabarni yozing, men barcha foydalanuvchilarga yuboraman.")
-    # Keyingi yozilgan xabarni olish va barcha foydalanuvchilarga yuborish kodini qo‘shish mumkin
 
-# =================== PREMIUM FOYDALANUVCHI ===================
+    @dp.message(F.from_user.id == ADMIN_ID)
+    async def send_broadcast(msg2: Message):
+        cur.execute("SELECT user_id FROM users")
+        users = cur.fetchall()
+        for u in users:
+            try:
+                await bot.send_message(u[0], msg2.text)
+            except:
+                continue
+        await msg2.answer("✅ Xabar barcha foydalanuvchilarga yuborildi!")
+
 @dp.callback_query(F.data == "premium_user")
 async def admin_premium(call: CallbackQuery):
     await call.message.answer("💎 Premium foydalanuvchi ID sini kiriting:")
+
+    @dp.message(F.from_user.id == ADMIN_ID)
+    async def add_premium(msg2: Message):
+        try:
+            user_id = int(msg2.text)
+            cur.execute("UPDATE users SET is_premium=1 WHERE user_id=?", (user_id,))
+            db.commit()
+            await msg2.answer(f"💎 {user_id} premium foydalanuvchi qilindi!")
+        except:
+            await msg2.answer("❌ ID noto‘g‘ri!")
+
+@dp.callback_query(F.data == "add_movie")
+async def admin_add_movie(call: CallbackQuery):
+    await call.message.answer("🎬 Film ma’lumotlarini kiriting (title|file_id|code|premium:0/1):")
+
+    @dp.message(F.from_user.id == ADMIN_ID)
+    async def save_movie_admin(msg2: Message):
+        try:
+            title, file_id, code, is_premium = msg2.text.split("|")
+            cur.execute(
+                "INSERT INTO movies(title,file_id,code,is_premium) VALUES (?,?,?,?)",
+                (title.strip(), file_id.strip(), code.strip(), int(is_premium.strip()))
+            )
+            db.commit()
+            await msg2.answer(f"🎬 Film '{title}' qo‘shildi! Premium: {is_premium}")
+        except:
+            await msg2.answer("❌ Format xato. To‘g‘ri: title|file_id|code|premium(0/1)")
 
 # =================== RUN ===================
 async def main():
