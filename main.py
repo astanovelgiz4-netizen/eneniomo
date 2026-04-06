@@ -20,7 +20,6 @@ if not os.path.exists("data"):
 
 db = sqlite3.connect("data/kino.db", check_same_thread=False)
 cur = db.cursor()
-
 db.execute("PRAGMA journal_mode=WAL;")
 
 cur.execute("""
@@ -29,7 +28,6 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT
 )
 """)
-
 cur.execute("""
 CREATE TABLE IF NOT EXISTS movies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,14 +36,13 @@ CREATE TABLE IF NOT EXISTS movies (
     file_id TEXT
 )
 """)
-
 cur.execute("""
 CREATE TABLE IF NOT EXISTS saved (
     user_id INTEGER,
-    movie_id INTEGER
+    movie_id INTEGER,
+    UNIQUE(user_id, movie_id)
 )
 """)
-
 db.commit()
 # ====================================================
 
