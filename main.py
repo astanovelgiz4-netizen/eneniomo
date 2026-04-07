@@ -141,7 +141,7 @@ async def inline_search(query: InlineQuery):
     await query.answer(results, cache_time=1)
 
 # =================== KOD ORQALI KINO ===================
-@dp.message(F.text.regexp(r"^\d{1,12}$"))
+@dp.message(F.text.regexp(r"^\d{1,15}$"))
 async def by_code(msg: Message):
     if not await check_sub(msg.from_user.id):
         await msg.answer("❗ Avval obuna bo‘ling")
@@ -189,53 +189,80 @@ async def admin_panel(msg: Message):
     kb.adjust(2)
     await msg.answer("Admin panelga xush kelibsiz!", reply_markup=kb.as_markup())
 
-# =================== ADMIN CRUD ===================
-# Kino qo‘shish
-@dp.callback_query(F.data == "admin_add_movie")
-async def admin_add_movie(call: CallbackQuery):
-    await call.message.answer("🎬 Kino qo‘shish. Video yuboring va caption: kod|Nom")
-    dp.data["admin_action"] = "add_movie"
+# =================== ADMIN ADD/DELETE/EDIT ===================
+@dp.callback_query(F.data.startswith("admin_add_"))
+async def admin_add(call: CallbackQuery):
+    add_type = "movie" if call.data.endswith("movie") else "serial"
+    dp.data["add_type"] = add_type
+    await call.message.answer(f"🎬 {add_type.capitalize()} qo‘shish. Video yuboring va caption: kod|Nom")
     await call.answer()
 
-# Serial qo‘shish
-@dp.callback_query(F.data == "admin_add_serial")
-async def admin_add_serial(call: CallbackQuery):
-    await call.message.answer("🎞 Serial qo‘shish. Video yuboring va caption: kod|Nom")
-    dp.data["admin_action"] = "add_serial"
+@dp.callback_query(F.data.startswith("admin_delete_"))
+async def admin_delete(call: CallbackQuery):
+    del_type = "movie" if call.data.endswith("movie") else "serial"
+    dp.data["delete_type"] = del_type
+    await call.message.answer(f"🗑 {del_type.capitalize()} o‘chirish uchun kod yuboring:")
     await call.answer()
 
-# Kino o‘chirish
-@dp.callback_query(F.data == "admin_delete_movie")
-async def admin_delete_movie(call: CallbackQuery):
-    await call.message.answer("🗑 O‘chirmoqchi bo‘lgan kinoning kodini yuboring:")
-    dp.data["admin_action"] = "delete_movie"
+@dp.callback_query(F.data.startswith("admin_edit_"))
+async def admin_edit(call: CallbackQuery):
+    edit_type = "movie" if call.data.endswith("movie") else "serial"
+    dp.data["edit_type"] = edit_type
+    await call.message.answer(f"✏️ {edit_type.capitalize()} tahrirlash uchun: Kod|Yangi nom")
     await call.answer()
 
-# Serial o‘chirish
-@dp.callback_query(F.data == "admin_delete_serial")
-async def admin_delete_serial(call: CallbackQuery):
-    await call.message.answer("🗑 O‘chirmoqchi bo‘lgan serialning kodini yuboring:")
-    dp.data["admin_action"] = "delete_serial"
-    await call.answer()
+# Video qabul qilish
+@dp.message(F.content_type == "video")
+async def handle_video(msg: Message):
+    add_type = dp.data.get("add_type")
+    if not add_type:
+        return
+    if not msg.caption or "|" not in msg.caption:
+        await msg.answer("❌ Format noto‘g‘ri. Format: kod|Nom")
+        return
+    code, title = [p.strip() for p in msg.caption.split("|", 1)]
+    table = "movies" if add_type == "movie" else "serials"
+    try:
+        cur.execute(f"INSERT INTO {table} (code,title,file_id) VALUES (?,?,?)", (code, title, msg.video.file_id))
+        db.commit()
+        await msg.answer(f"✅ {title} qo‘shildi!")
+    except sqlite3.IntegrityError:
+        await msg.answer("❌ Bu kod mavjud!")
+    dp.data["add_type"] = None
 
-# Kino tahrirlash
-@dp.callback_query(F.data == "admin_edit_movie")
-async def admin_edit_movie(call: CallbackQuery):
-    await call.message.answer("✏️ Kino tahrirlash uchun: kod|Yangi nom")
-    dp.data["admin_action"] = "edit_movie"
-    await call.answer()
+# Delete handle
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_delete(msg: Message):
+    delete_type = dp.data.get("delete_type")
+    if not delete_type:
+        return
+    code = msg.text.strip()
+    table = "movies" if delete_type == "movie" else "serials"
+    cur.execute(f"DELETE FROM {table} WHERE code=?", (code,))
+    db.commit()
+    await msg.answer(f"✅ {code} kodi bilan {delete_type} o‘chirildi!")
+    dp.data["delete_type"] = None
 
-# Serial tahrirlash
-@dp.callback_query(F.data == "admin_edit_serial")
-async def admin_edit_serial(call: CallbackQuery):
-    await call.message.answer("✏️ Serial tahrirlash uchun: kod|Yangi nom")
-    dp.data["admin_action"] = "edit_serial"
-    await call.answer()
+# Edit handle
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_edit(msg: Message):
+    edit_type = dp.data.get("edit_type")
+    if not edit_type:
+        return
+    if "|" not in msg.text:
+        await msg.answer("❌ Format noto‘g‘ri. Kod|Yangi nom")
+        return
+    code, new_title = [p.strip() for p in msg.text.split("|", 1)]
+    table = "movies" if edit_type == "movie" else "serials"
+    cur.execute(f"UPDATE {table} SET title=? WHERE code=?", (new_title, code))
+    db.commit()
+    await msg.answer(f"✅ {edit_type.capitalize()} kodi {code} tahrirlandi!")
+    dp.data["edit_type"] = None
 
-# Ro‘yxatlarni ko‘rsatish
+# =================== LIST ===================
 @dp.callback_query(F.data == "admin_list_movies")
-async def admin_list_movies(call: CallbackQuery):
-    cur.execute("SELECT code, title FROM movies")
+async def list_movies(call: CallbackQuery):
+    cur.execute("SELECT code,title FROM movies")
     movies = cur.fetchall()
     if not movies:
         await call.message.answer("🎬 Kino yo‘q")
@@ -244,8 +271,8 @@ async def admin_list_movies(call: CallbackQuery):
     await call.message.answer(text)
 
 @dp.callback_query(F.data == "admin_list_serials")
-async def admin_list_serials(call: CallbackQuery):
-    cur.execute("SELECT code, title FROM serials")
+async def list_serials(call: CallbackQuery):
+    cur.execute("SELECT code,title FROM serials")
     serials = cur.fetchall()
     if not serials:
         await call.message.answer("🎞 Serial yo‘q")
@@ -253,7 +280,7 @@ async def admin_list_serials(call: CallbackQuery):
     text = "🎞 Serial ro‘yxati:\n" + "\n".join([f"{s[0]} - {s[1]}" for s in serials])
     await call.message.answer(text)
 
-# =================== ADMIN FOYDALANUVCHI / STAT ===================
+# =================== USERS & STATS ===================
 @dp.callback_query(F.data == "admin_users")
 async def admin_users(call: CallbackQuery):
     cur.execute("SELECT user_id, username FROM users")
@@ -280,52 +307,6 @@ async def admin_stats(call: CallbackQuery):
 🎞 Seriallar: {total_serials}
 💾 Saqlangan: {total_saved}"""
     await call.message.answer(text)
-
-# =================== ADMIN VIDEO / EDIT / DELETE HANDLER ===================
-@dp.message(F.from_user.id == ADMIN_ID, F.content_type.in_({"video", "text"}))
-async def admin_input_handler(msg: Message):
-    action = dp.data.get("admin_action")
-    if not action:
-        return
-
-    # Video qo‘shish (kino/serial)
-    if action in ["add_movie", "add_serial"]:
-        if msg.content_type != "video" or not msg.caption or "|" not in msg.caption:
-            await msg.answer("❌ Format noto‘g‘ri. Video yuboring va caption: kod|Nom")
-            return
-        code, title = [p.strip() for p in msg.caption.split("|", 1)]
-        table = "movies" if action == "add_movie" else "serials"
-        try:
-            cur.execute(f"INSERT INTO {table} (code,title,file_id) VALUES (?,?,?)", (code,title,msg.video.file_id))
-            db.commit()
-            await msg.answer(f"✅ {title} qo‘shildi!")
-        except sqlite3.IntegrityError:
-            await msg.answer("❌ Bu kod mavjud!")
-        dp.data["admin_action"] = None
-        return
-
-    # Delete kino/serial
-    if action in ["delete_movie", "delete_serial"]:
-        code = msg.text.strip()
-        table = "movies" if action == "delete_movie" else "serials"
-        cur.execute(f"DELETE FROM {table} WHERE code=?", (code,))
-        db.commit()
-        await msg.answer(f"✅ {code} kodi bilan o‘chirildi!")
-        dp.data["admin_action"] = None
-        return
-
-    # Edit kino/serial
-    if action in ["edit_movie", "edit_serial"]:
-        if "|" not in msg.text:
-            await msg.answer("❌ Format noto‘g‘ri. Kod|Yangi nom")
-            return
-        code, new_title = [p.strip() for p in msg.text.split("|", 1)]
-        table = "movies" if action == "edit_movie" else "serials"
-        cur.execute(f"UPDATE {table} SET title=? WHERE code=?", (new_title, code))
-        db.commit()
-        await msg.answer(f"✅ {code} kodi bilan nom `{new_title}` ga o‘zgartirildi!")
-        dp.data["admin_action"] = None
-        return
 
 # =================== BROADCAST ===================
 @dp.callback_query(F.data == "admin_broadcast_inline")
@@ -382,4 +363,8 @@ async def handle_broadcast(msg: Message):
     dp.data["broadcast_type"] = None
 
 # =================== RUN ===================
-async def main
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
