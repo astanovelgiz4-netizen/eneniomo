@@ -6,7 +6,7 @@ from aiogram.types import *
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # =================== SOZLAMALAR ===================
-BOT_TOKEN = "8335969395:AAEDVgSrqifUwf23--PcrR7tWHRd9KNF27A"
+BOT_TOKEN = "7748673962:AAE0KUclQJs6xcwlsFnKvcmhvfl5TpwsxYI"
 ADMIN_ID = 6884014716
 CHANNEL_USERNAME = "@kinolashamz"
 START_IMAGE_PATH = "start.jpg"  # Oddiy rasm fayli
