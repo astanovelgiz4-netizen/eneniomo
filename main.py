@@ -61,6 +61,9 @@ async def check_sub(user_id):
     except:
         return False
 
+# =================== ADMIN VAQTINCHALIK ===================
+dp.data = {}
+
 # =================== START ===================
 @dp.message(F.text.startswith("/start"))
 async def start(msg: Message):
@@ -73,8 +76,10 @@ async def start(msg: Message):
     kb.adjust(2)
 
     if not await check_sub(msg.from_user.id):
-        text_msg = f"👋 Assalomu alaykum {user_link}\n🎬 Botdagi en zòr filmlarni tomosha qilish uchun faqat 1ta rasmiy kanalimizga obuna bo‘lishingiz kerak! 
-    💡 Kanalga obuna bo‘lgach, siz barcha filmlarga kirish huquqiga ega bo‘lasiz!
+        text_msg = f"""👋 Assalomu alaykum {user_link}
+🎬 Botdagi eng zo‘r filmlarni tomosha qilish uchun faqat 1ta rasmiy kanalimizga obuna bo‘lishingiz kerak!
+💡 Kanalga obuna bo‘lgach, siz barcha filmlarga kirish huquqiga ega bo‘lasiz!"""
+        
         if os.path.exists(START_IMAGE_PATH):
             await msg.answer_photo(START_IMAGE_PATH, caption=text_msg, reply_markup=kb.as_markup(), parse_mode="Markdown")
         else:
@@ -88,7 +93,8 @@ async def start(msg: Message):
     kb2 = InlineKeyboardBuilder()
     kb2.button(text="🔍 Inline qidiruv", switch_inline_query_current_chat="")
     kb2.adjust(1)
-    text_msg = f"👋 Assalomu alaykum {user_link}\n🎬 Botdagi barcha filmlarni 🔎 inline qidiruvi va 📟 kod orqali topishingiz mumkin!
+    text_msg = f"""👋 Assalomu alaykum {user_link}
+🎬 Botdagi barcha filmlarni 🔎 inline qidiruvi va 📟 kod orqali topishingiz mumkin!"""
     await msg.answer(text_msg, reply_markup=kb2.as_markup(), parse_mode="Markdown")
 
 # =================== CHECK SUB ===================
@@ -104,7 +110,8 @@ async def check_subscription(call: CallbackQuery):
         kb2 = InlineKeyboardBuilder()
         kb2.button(text="🔍 Inline qidiruv", switch_inline_query_current_chat="")
         kb2.adjust(1)
-        text_msg = f"👋 Assalomu alaykum {user_link}\nBotdagi barcha filmlarni 🔎 inline qidiruv orqali topishingiz mumkin!"
+        text_msg = f"""👋 Assalomu alaykum {user_link}
+Botdagi barcha filmlarni 🔎 inline qidiruv orqali topishingiz mumkin!"""
         await call.message.edit_text(text_msg, reply_markup=kb2.as_markup(), parse_mode="Markdown")
     else:
         await call.answer("❌ Obuna bo‘lmadingiz", show_alert=True)
@@ -176,8 +183,6 @@ async def admin_panel(msg: Message):
     await msg.answer("Admin panelga xush kelibsiz!", reply_markup=kb.as_markup())
 
 # =================== ADMIN HANDLERLAR ===================
-dp.data = {}  # Admin uchun vaqtinchalik saqlash
-
 # Kino qo‘shish
 @dp.callback_query(F.data == "admin_add_movie")
 async def admin_add_movie(call: CallbackQuery):
@@ -218,21 +223,19 @@ async def handle_video(msg: Message):
             await msg.answer("❌ Bu kod mavjud!")
     dp.data["add_type"] = None
 
-# =================== BROADCAST INLINE ===================
+# =================== BROADCAST ===================
 @dp.callback_query(F.data == "admin_broadcast_inline")
 async def admin_broadcast_inline(call: CallbackQuery):
     await call.message.answer("📣 Inline tugma bilan xabar yuboring.\nFormat: Xabar matni | Tugma matni | URL")
     dp.data["broadcast_type"] = "inline"
     await call.answer()
 
-# =================== BROADCAST TUGMASIZ ===================
 @dp.callback_query(F.data == "admin_broadcast_text")
 async def admin_broadcast_text(call: CallbackQuery):
     await call.message.answer("📢 Tugmasiz xabar yuboring.")
     dp.data["broadcast_type"] = "text"
     await call.answer()
 
-# =================== BROADCAST XABAR QABUL ===================
 @dp.message(F.from_user.id == ADMIN_ID)
 async def handle_broadcast(msg: Message):
     broadcast_type = dp.data.get("broadcast_type")
@@ -262,7 +265,7 @@ async def handle_broadcast(msg: Message):
             except:
                 continue
         await msg.answer(f"✅ Xabar {sent_count} foydalanuvchiga yuborildi!")
-    else:  # tugmasiz
+    else:
         sent_count = 0
         for u in users:
             try:
@@ -274,7 +277,7 @@ async def handle_broadcast(msg: Message):
 
     dp.data["broadcast_type"] = None
 
-# =================== ADMIN KINO/SERIAL RO'YXATI ===================
+# =================== ADMIN RO'YXATLAR ===================
 @dp.callback_query(F.data == "admin_list_movies")
 async def list_movies(call: CallbackQuery):
     cur.execute("SELECT id, code, title FROM movies")
