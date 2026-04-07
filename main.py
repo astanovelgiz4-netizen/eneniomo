@@ -141,20 +141,26 @@ async def inline_search(query: InlineQuery):
     await query.answer(results, cache_time=1)
 
 # =================== KOD ORQALI KINO ===================
-@dp.message(F.text.regexp(r"^\d{1,7}$"))  # 1 dan 10 mln gacha raqam
+@dp.message(F.text.regexp(r"^\d{1,7}$"))
 async def by_code(msg: Message):
-    code = msg.text.strip()
     if not await check_sub(msg.from_user.id):
         await msg.answer("❗ Avval obuna bo‘ling")
         return
-    cur.execute("SELECT id, title, file_id FROM movies WHERE code=?", (code,))
+    cur.execute("SELECT id, title, file_id FROM movies WHERE code=?", (msg.text,))
     movie = cur.fetchone()
-    if not movie:
-        await msg.answer("❌ Topilmadi")
+    if movie:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="💾 Saqlash", callback_data=f"save_movie_{movie[0]}")
+        await bot.send_video(msg.chat.id, movie[2], caption=f"🎬 {movie[1]}\n🔢 Kod: {msg.text}", reply_markup=kb.as_markup())
         return
-    kb = InlineKeyboardBuilder()
-    kb.button(text="💾 Saqlash", callback_data=f"save_movie_{movie[0]}")
-    await bot.send_video(msg.chat.id, movie[2], caption=f"🎬 {movie[1]}\n🔢 Kod: {code}", reply_markup=kb.as_markup())
+    cur.execute("SELECT id, title, file_id FROM serials WHERE code=?", (msg.text,))
+    serial = cur.fetchone()
+    if serial:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="💾 Saqlash", callback_data=f"save_serial_{serial[0]}")
+        await bot.send_video(msg.chat.id, serial[2], caption=f"🎞 {serial[1]}\n🔢 Kod: {msg.text}", reply_markup=kb.as_markup())
+        return
+    await msg.answer("❌ Topilmadi")
 
 # =================== SAVE ===================
 @dp.callback_query(F.data.startswith("save_"))
@@ -191,38 +197,80 @@ async def admin_users(call: CallbackQuery):
     if not users:
         await call.message.answer("👥 Foydalanuvchi yo‘q")
         return
-    text = "👥 Foydalanuvchilar ro‘yxati:\n\n"
-    for u in users:
-        username = u[1] if u[1] else "Noma'lum"
-        text += f"🆔 {u[0]} | {username}\n"
+    text = "👥 Foydalanuvchilar ro‘yxati:\n\n" + "\n".join([f"{u[0]} - @{u[1] if u[1] else 'No username'}" for u in users])
     await call.message.answer(text)
 
-# =================== ADMIN FOYDALANUVCHI STATISTIKASI ===================
+# =================== ADMIN STATISTIKA ===================
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(call: CallbackQuery):
     cur.execute("SELECT COUNT(*) FROM users")
     total_users = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM saved")
-    total_saved = cur.fetchone()[0]
-
     cur.execute("SELECT COUNT(*) FROM movies")
     total_movies = cur.fetchone()[0]
-
     cur.execute("SELECT COUNT(*) FROM serials")
     total_serials = cur.fetchone()[0]
-
-    text = (
-        f"📊 Foydalanuvchi statistikasi:\n\n"
-        f"👥 Foydalanuvchilar soni: {total_users}\n"
-        f"💾 Saqlangan kinolar/seriallar: {total_saved}\n"
-        f"🎬 Kinolar soni: {total_movies}\n"
-        f"🎞 Seriallar soni: {total_serials}"
-    )
+    cur.execute("SELECT COUNT(*) FROM saved")
+    total_saved = cur.fetchone()[0]
+    text = f"""📊 Bot statistika:
+👥 Foydalanuvchilar: {total_users}
+🎬 Kinolar: {total_movies}
+🎞 Seriallar: {total_serials}
+💾 Saqlangan: {total_saved}"""
     await call.message.answer(text)
 
-# =================== QOLGAN KOD (Kino/Serial qo‘shish, tahrirlash, o‘chirish, broadcast va inline qidiruv) ===================
-# ... shu yerda sizning oldingi admin va broadcast kodlaringiz qoladi, hech narsa o‘zgarmaydi
+# =================== ADMIN BROADCAST ===================
+@dp.callback_query(F.data == "admin_broadcast_inline")
+async def admin_broadcast_inline(call: CallbackQuery):
+    await call.message.answer("📣 Inline tugma bilan xabar yuboring.\nFormat: Xabar matni | Tugma matni | URL")
+    dp.data["broadcast_type"] = "inline"
+    await call.answer()
+
+@dp.callback_query(F.data == "admin_broadcast_text")
+async def admin_broadcast_text(call: CallbackQuery):
+    await call.message.answer("📢 Tugmasiz xabar yuboring.")
+    dp.data["broadcast_type"] = "text"
+    await call.answer()
+
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_broadcast(msg: Message):
+    broadcast_type = dp.data.get("broadcast_type")
+    if not broadcast_type:
+        return
+
+    cur.execute("SELECT user_id FROM users")
+    users = cur.fetchall()
+    if not users:
+        await msg.answer("❌ Foydalanuvchi yo‘q")
+        dp.data["broadcast_type"] = None
+        return
+
+    if broadcast_type == "inline":
+        if not msg.text or "|" not in msg.text:
+            await msg.answer("❌ Format noto‘g‘ri. Format: Xabar matni | Tugma matni | URL")
+            return
+        text, btn_text, url = [p.strip() for p in msg.text.split("|", 2)]
+        kb = InlineKeyboardBuilder()
+        kb.button(text=btn_text, url=url)
+        kb.adjust(1)
+        sent_count = 0
+        for u in users:
+            try:
+                await bot.send_message(u[0], text, reply_markup=kb.as_markup())
+                sent_count += 1
+            except:
+                continue
+        await msg.answer(f"✅ Xabar {sent_count} foydalanuvchiga yuborildi!")
+    else:
+        sent_count = 0
+        for u in users:
+            try:
+                await bot.send_message(u[0], msg.text)
+                sent_count += 1
+            except:
+                continue
+        await msg.answer(f"✅ Xabar {sent_count} foydalanuvchiga yuborildi!")
+
+    dp.data["broadcast_type"] = None
 
 # =================== RUN ===================
 async def main():
