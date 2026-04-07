@@ -9,7 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 BOT_TOKEN = "7748673962:AAE0KUclQJs6xcwlsFnKvcmhvfl5TpwsxYI"
 ADMIN_ID = 6884014716
 CHANNEL_USERNAME = "@kinolashamz"
-START_IMAGE_PATH = "start.jpg"  # Oddiy rasm fayli
+START_IMAGE_PATH = "start.jpg"
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
@@ -73,7 +73,8 @@ async def start(msg: Message):
     kb.adjust(2)
 
     if not await check_sub(msg.from_user.id):
-        text_msg = f"👋 Assalomu alaykum {user_link}\n🎬 Botdagi filmlarni ko‘rish uchun kanalga obuna bo‘ling!"
+        text_msg = f"👋 Assalomu alaykum {user_link}\n🎬 Botdagi en zòr filmlarni tomosha qilish uchun faqat 1ta rasmiy kanalimizga obuna bo‘lishingiz kerak! 
+    💡 Kanalga obuna bo‘lgach, siz barcha filmlarga kirish huquqiga ega bo‘lasiz!
         if os.path.exists(START_IMAGE_PATH):
             await msg.answer_photo(START_IMAGE_PATH, caption=text_msg, reply_markup=kb.as_markup(), parse_mode="Markdown")
         else:
@@ -87,7 +88,7 @@ async def start(msg: Message):
     kb2 = InlineKeyboardBuilder()
     kb2.button(text="🔍 Inline qidiruv", switch_inline_query_current_chat="")
     kb2.adjust(1)
-    text_msg = f"👋 Assalomu alaykum {user_link}\nBotdagi barcha filmlarni 🔎 inline qidiruv orqali topishingiz mumkin!"
+    text_msg = f"👋 Assalomu alaykum {user_link}\n🎬 Botdagi barcha filmlarni 🔎 inline qidiruvi va 📟 kod orqali topishingiz mumkin!
     await msg.answer(text_msg, reply_markup=kb2.as_markup(), parse_mode="Markdown")
 
 # =================== CHECK SUB ===================
@@ -174,14 +175,186 @@ async def admin_panel(msg: Message):
     kb.adjust(2)
     await msg.answer("Admin panelga xush kelibsiz!", reply_markup=kb.as_markup())
 
-# =================== HOZIRCHA ADMIN HANDLERLAR ===================
-# Shu yerga kino/serial qo‘shish, tahrirlash, o‘chirish, ro‘yxat, broadcast handlerlarini qo‘shish kerak.
-# Barchasi async def handler_name(...) tarzida yoziladi.
-# Masalan:
-# @dp.callback_query(F.data == "admin_add_movie")
-# async def add_movie(call: CallbackQuery):
-#     # Handler kodi shu yerda
-#     pass
+# =================== ADMIN HANDLERLAR ===================
+dp.data = {}  # Admin uchun vaqtinchalik saqlash
+
+# Kino qo‘shish
+@dp.callback_query(F.data == "admin_add_movie")
+async def admin_add_movie(call: CallbackQuery):
+    await call.message.answer("🎬 Kino qo‘shish. Format: Video yuboring va caption: 001|Kino nomi")
+    dp.data["add_type"] = "movie"
+    await call.answer()
+
+# Serial qo‘shish
+@dp.callback_query(F.data == "admin_add_serial")
+async def admin_add_serial(call: CallbackQuery):
+    await call.message.answer("🎞 Serial qo‘shish. Format: Video yuboring va caption: 001|Serial nomi")
+    dp.data["add_type"] = "serial"
+    await call.answer()
+
+# Video qabul qilish
+@dp.message(F.content_type == "video")
+async def handle_video(msg: Message):
+    add_type = dp.data.get("add_type")
+    if not add_type:
+        return
+    if not msg.caption or "|" not in msg.caption:
+        await msg.answer("❌ Format noto‘g‘ri. Format: 001|Nom")
+        return
+    code, title = [p.strip() for p in msg.caption.split("|", 1)]
+    if add_type == "movie":
+        try:
+            cur.execute("INSERT INTO movies (code,title,file_id) VALUES (?,?,?)", (code,title,msg.video.file_id))
+            db.commit()
+            await msg.answer(f"🎬 {title} qo‘shildi!")
+        except sqlite3.IntegrityError:
+            await msg.answer("❌ Bu kod mavjud!")
+    else:
+        try:
+            cur.execute("INSERT INTO serials (code,title,file_id) VALUES (?,?,?)", (code,title,msg.video.file_id))
+            db.commit()
+            await msg.answer(f"🎞 {title} qo‘shildi!")
+        except sqlite3.IntegrityError:
+            await msg.answer("❌ Bu kod mavjud!")
+    dp.data["add_type"] = None
+
+# =================== BROADCAST INLINE ===================
+@dp.callback_query(F.data == "admin_broadcast_inline")
+async def admin_broadcast_inline(call: CallbackQuery):
+    await call.message.answer("📣 Inline tugma bilan xabar yuboring.\nFormat: Xabar matni | Tugma matni | URL")
+    dp.data["broadcast_type"] = "inline"
+    await call.answer()
+
+# =================== BROADCAST TUGMASIZ ===================
+@dp.callback_query(F.data == "admin_broadcast_text")
+async def admin_broadcast_text(call: CallbackQuery):
+    await call.message.answer("📢 Tugmasiz xabar yuboring.")
+    dp.data["broadcast_type"] = "text"
+    await call.answer()
+
+# =================== BROADCAST XABAR QABUL ===================
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_broadcast(msg: Message):
+    broadcast_type = dp.data.get("broadcast_type")
+    if not broadcast_type:
+        return
+
+    cur.execute("SELECT user_id FROM users")
+    users = cur.fetchall()
+    if not users:
+        await msg.answer("❌ Foydalanuvchi yo‘q")
+        dp.data["broadcast_type"] = None
+        return
+
+    if broadcast_type == "inline":
+        if not msg.text or "|" not in msg.text:
+            await msg.answer("❌ Format noto‘g‘ri. Format: Xabar matni | Tugma matni | URL")
+            return
+        text, btn_text, url = [p.strip() for p in msg.text.split("|", 2)]
+        kb = InlineKeyboardBuilder()
+        kb.button(text=btn_text, url=url)
+        kb.adjust(1)
+        sent_count = 0
+        for u in users:
+            try:
+                await bot.send_message(u[0], text, reply_markup=kb.as_markup())
+                sent_count += 1
+            except:
+                continue
+        await msg.answer(f"✅ Xabar {sent_count} foydalanuvchiga yuborildi!")
+    else:  # tugmasiz
+        sent_count = 0
+        for u in users:
+            try:
+                await bot.send_message(u[0], msg.text)
+                sent_count += 1
+            except:
+                continue
+        await msg.answer(f"✅ Xabar {sent_count} foydalanuvchiga yuborildi!")
+
+    dp.data["broadcast_type"] = None
+
+# =================== ADMIN KINO/SERIAL RO'YXATI ===================
+@dp.callback_query(F.data == "admin_list_movies")
+async def list_movies(call: CallbackQuery):
+    cur.execute("SELECT id, code, title FROM movies")
+    movies = cur.fetchall()
+    if not movies:
+        await call.message.answer("🎬 Kino yo‘q")
+        return
+    text = "🎬 Kino ro‘yxati:\n\n" + "\n".join([f"{m[1]} - {m[2]}" for m in movies])
+    await call.message.answer(text)
+
+@dp.callback_query(F.data == "admin_list_serials")
+async def list_serials(call: CallbackQuery):
+    cur.execute("SELECT id, code, title FROM serials")
+    serials = cur.fetchall()
+    if not serials:
+        await call.message.answer("🎞 Serial yo‘q")
+        return
+    text = "🎞 Serial ro‘yxati:\n\n" + "\n".join([f"{s[1]} - {s[2]}" for s in serials])
+    await call.message.answer(text)
+
+# =================== ADMIN O'CHIRISH ===================
+@dp.callback_query(F.data == "admin_delete_movie")
+async def delete_movie(call: CallbackQuery):
+    await call.message.answer("🗑 O‘chirmoqchi bo‘lgan kinoning kodini yuboring:")
+    dp.data["delete_type"] = "movie"
+    await call.answer()
+
+@dp.callback_query(F.data == "admin_delete_serial")
+async def delete_serial(call: CallbackQuery):
+    await call.message.answer("🗑 O‘chirmoqchi bo‘lgan serialning kodini yuboring:")
+    dp.data["delete_type"] = "serial"
+    await call.answer()
+
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_delete(msg: Message):
+    delete_type = dp.data.get("delete_type")
+    if not delete_type:
+        return
+    code = msg.text.strip()
+    if delete_type == "movie":
+        cur.execute("DELETE FROM movies WHERE code=?", (code,))
+        db.commit()
+        await msg.answer(f"🎬 {code} kodi bilan kino o‘chirildi!")
+    elif delete_type == "serial":
+        cur.execute("DELETE FROM serials WHERE code=?", (code,))
+        db.commit()
+        await msg.answer(f"🎞 {code} kodi bilan serial o‘chirildi!")
+    dp.data["delete_type"] = None
+
+# =================== ADMIN TAHRIR ===================
+@dp.callback_query(F.data == "admin_edit_movie")
+async def edit_movie(call: CallbackQuery):
+    await call.message.answer("✏️ Tahrirlash uchun: Kod|Yangi nom")
+    dp.data["edit_type"] = "movie"
+    await call.answer()
+
+@dp.callback_query(F.data == "admin_edit_serial")
+async def edit_serial(call: CallbackQuery):
+    await call.message.answer("✏️ Tahrirlash uchun: Kod|Yangi nom")
+    dp.data["edit_type"] = "serial"
+    await call.answer()
+
+@dp.message(F.from_user.id == ADMIN_ID)
+async def handle_edit(msg: Message):
+    edit_type = dp.data.get("edit_type")
+    if not edit_type:
+        return
+    if "|" not in msg.text:
+        await msg.answer("❌ Format noto‘g‘ri. Kod|Yangi nom")
+        return
+    code, new_title = [p.strip() for p in msg.text.split("|", 1)]
+    if edit_type == "movie":
+        cur.execute("UPDATE movies SET title=? WHERE code=?", (new_title, code))
+        db.commit()
+        await msg.answer(f"🎬 {code} kodi bilan kino nomi `{new_title}` ga o‘zgartirildi!")
+    elif edit_type == "serial":
+        cur.execute("UPDATE serials SET title=? WHERE code=?", (new_title, code))
+        db.commit()
+        await msg.answer(f"🎞 {code} kodi bilan serial nomi `{new_title}` ga o‘zgartirildi!")
+    dp.data["edit_type"] = None
 
 # =================== RUN ===================
 async def main():
